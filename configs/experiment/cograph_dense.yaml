@@ -1,0 +1,30 @@
+# @package _global_
+defaults:
+    - override /dataset: cograph_dense
+general:
+    name : 'cograph_dense'
+    gpus : 1
+    wandb: 'offline' # logging
+    resume: null #continue from checkpoint
+    test_only: null # only test, when we use trained checkpoint ...
+    check_val_every_n_epochs: 50
+    sample_every_val: 1
+    samples_to_generate: 40
+    samples_to_save: 9
+    chains_to_save: 1
+    final_model_samples_to_generate: 1250 # full test set
+    final_model_samples_to_save: 30 # n plots
+    final_model_chains_to_save: 20 # n animations
+    sample_steps: 500 #same as QM9
+train:
+    n_epochs: 500
+    batch_size: 256
+    save_model: True
+    time_distortion: 'polydec'
+sample:
+    time_distortion: 'polydec'
+    omega: 0 # 0 = unconditional generation
+    eta: 0 # 0 = stochastic noise injection factor => 0 (deterministic probability flow ODE)
+
+model:
+    n_layers: 10

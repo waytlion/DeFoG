@@ -1063,6 +1063,26 @@ class SpectreSamplingMetrics(nn.Module):
             if wandb.run:
                 wandb.run.summary["tree_acc"] = tree_acc
 
+        if "cograph_join" in self.metrics_list:
+            if local_rank == 0:
+                print("Computing cograph join validity...")
+            join_valid = sum(
+                1 for G in networkx_graphs if is_valid_cograph_join(G)
+            ) / len(networkx_graphs)
+            to_log["cograph_join_acc"] = join_valid
+            if wandb.run:
+                wandb.run.summary["cograph_join_acc"] = join_valid
+
+        if "cograph_union" in self.metrics_list:
+            if local_rank == 0:
+                print("Computing cograph union validity...")
+            union_valid = sum(
+                1 for G in networkx_graphs if is_valid_cograph_union(G)
+            ) / len(networkx_graphs)
+            to_log["cograph_union_acc"] = union_valid
+            if wandb.run:
+                wandb.run.summary["cograph_union_acc"] = union_valid
+
         if (
             "sbm" in self.metrics_list
             or "planar" in self.metrics_list
@@ -1192,4 +1212,51 @@ class IMDBSamplingMetrics(SpectreSamplingMetrics):
             datamodule=datamodule,
             compute_emd=False,
             metrics_list=["degree", "clustering", "orbit", "spectre", "wavelet"],
+        )
+
+
+def is_valid_cograph_join(G):
+    """A graph is a valid join iff its complement is disconnected."""
+    if G.number_of_nodes() < 2:
+        raise ValueError(f"Graph has {G.number_of_nodes()} nodes, expected >= 2")
+    G_comp = nx.complement(G)
+    return not nx.is_connected(G_comp)
+
+
+def is_valid_cograph_union(G):
+    """A graph is a valid union iff the graph itself is disconnected."""
+    if G.number_of_nodes() < 2:
+        raise ValueError(f"Graph has {G.number_of_nodes()} nodes, expected >= 2")
+    return not nx.is_connected(G)
+
+
+class CographJoinSamplingMetrics(SpectreSamplingMetrics):
+    def __init__(self, datamodule):
+        super().__init__(
+            datamodule=datamodule,
+            compute_emd=False,
+            metrics_list=[
+                "degree",
+                "clustering",
+                "orbit",
+                "spectre",
+                "wavelet",
+                "cograph_join",
+            ],
+        )
+
+
+class CographUnionSamplingMetrics(SpectreSamplingMetrics):
+    def __init__(self, datamodule):
+        super().__init__(
+            datamodule=datamodule,
+            compute_emd=False,
+            metrics_list=[
+                "degree",
+                "clustering",
+                "orbit",
+                "spectre",
+                "wavelet",
+                "cograph_union",
+            ],
         )
