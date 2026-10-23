@@ -1066,22 +1066,41 @@ class SpectreSamplingMetrics(nn.Module):
         if "cograph_join" in self.metrics_list:
             if local_rank == 0:
                 print("Computing cograph join validity...")
-            join_valid = sum(
-                1 for G in networkx_graphs if is_valid_cograph_join(G)
-            ) / len(networkx_graphs)
+            valid_joins = [G for G in networkx_graphs if is_valid_cograph_join(G)]
+            join_valid = len(valid_joins) / len(networkx_graphs)
             to_log["cograph_join_acc"] = join_valid
+            if valid_joins: #compute rate of valid graphs, where both subgraphs are connected graphs
+                conn_count = sum(
+                    1 for G in valid_joins
+                    if len(list(nx.connected_components(nx.complement(G)))) == 2
+                    and all(nx.is_connected(G.subgraph(c)) for c in nx.connected_components(nx.complement(G)))
+                )
+                subgraph_conn = conn_count / len(valid_joins)
+            else:
+                subgraph_conn = 0.0
+            to_log["cograph_join_subgraph_conn_acc"] = subgraph_conn
             if wandb.run:
                 wandb.run.summary["cograph_join_acc"] = join_valid
+                wandb.run.summary["cograph_join_subgraph_conn_acc"] = subgraph_conn
 
         if "cograph_union" in self.metrics_list:
             if local_rank == 0:
                 print("Computing cograph union validity...")
-            union_valid = sum(
-                1 for G in networkx_graphs if is_valid_cograph_union(G)
-            ) / len(networkx_graphs)
+            valid_unions = [G for G in networkx_graphs if is_valid_cograph_union(G)]
+            union_valid = len(valid_unions) / len(networkx_graphs)
             to_log["cograph_union_acc"] = union_valid
+            if valid_unions:
+                conn_count = sum(
+                    1 for G in valid_unions
+                    if nx.number_connected_components(G) == 2
+                )
+                subgraph_conn = conn_count / len(valid_unions)
+            else:
+                subgraph_conn = 0.0
+            to_log["cograph_union_subgraph_conn_acc"] = subgraph_conn
             if wandb.run:
                 wandb.run.summary["cograph_union_acc"] = union_valid
+                wandb.run.summary["cograph_union_subgraph_conn_acc"] = subgraph_conn
 
         if (
             "sbm" in self.metrics_list
