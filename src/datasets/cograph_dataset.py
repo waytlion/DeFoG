@@ -8,7 +8,7 @@ Modeled on spectre_dataset.py for unattributed graphs.
 
 import os
 import pathlib
-
+import shutil
 import torch
 import torch_geometric.utils
 from torch_geometric.data import InMemoryDataset
@@ -121,5 +121,7 @@ class CographDatasetInfos(AbstractDatasetInfos):
         self.ref_metrics = {"val": None, "test": None} #parent class creates this when executing compute_reference_metrics, which we skip
     
     def compute_reference_metrics(self, datamodule, sampling_metrics):
-        print("Skipping pre-training reference metrics computation for cographs, because this computation would compute 10kx10k MMD's (train-train) for reference which takes forever")
-
+        print(
+            "Skipping pre-training reference metrics computation for cographs\n"
+            "  (computing 10k x 10k train-train reference MMDs is much slow)."
+        )

@@ -224,7 +224,52 @@ class GraphDiscreteFlowModel(pl.LightningModule):
                 for key, value in to_log.items():
                     file.write(f"{key}: {value}\n")
 
+            self._save_and_plot_val_history(to_log)
+
         self.print("Finished validation.")
+
+    def _save_and_plot_val_history(self, to_log: dict):
+        csv_path = os.path.join(os.getcwd(), "val_metrics_history.csv")
+        row = {"epoch": self.current_epoch}
+        for k, v in to_log.items():
+            if isinstance(v, (int, float, np.number)):
+                row[k] = float(v)
+            elif isinstance(v, torch.Tensor) and v.numel() == 1:
+                row[k] = float(v.item())
+
+        df_new = pd.DataFrame([row])
+        if os.path.exists(csv_path):
+            df = pd.read_csv(csv_path)
+            df = df[df["epoch"] != self.current_epoch]
+            df = pd.concat([df, df_new], ignore_index=True)
+        else:
+            df = df_new
+        df.sort_values("epoch", inplace=True)
+        df.to_csv(csv_path, index=False)
+
+        metric_cols = [c for c in df.columns if c != "epoch"]
+        if not metric_cols:
+            return
+
+        ncols = min(3, len(metric_cols))
+        nrows = (len(metric_cols) + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 3.5 * nrows), squeeze=False)
+
+        for idx, col in enumerate(metric_cols):
+            r, c = divmod(idx, ncols)
+            ax = axes[r, c]
+            ax.plot(df["epoch"], df[col], marker="o", linewidth=2, color="#0066cc")
+            ax.set_title(col, fontsize=11, fontweight="bold")
+            ax.set_xlabel("Epoch", fontsize=10)
+            ax.grid(True, linestyle="--", alpha=0.6)
+
+        for idx in range(len(metric_cols), nrows * ncols):
+            r, c = divmod(idx, ncols)
+            axes[r, c].axis("off")
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.getcwd(), "val_metrics_curves.png"), dpi=150)
+        plt.close(fig)
 
     def on_test_epoch_start(self) -> None:
         self.print("Starting test...")
