@@ -1,0 +1,30 @@
+# @package _global_
+defaults:
+    - override /dataset: cograph_collab_dense
+general:
+    name : 'cograph_collab_dense'
+    gpus : 1
+    wandb: 'offline'
+    resume: null
+    test_only: null
+    check_val_every_n_epochs: 50
+    sample_every_val: 1
+    samples_to_generate: 40
+    samples_to_save: 9
+    chains_to_save: 1
+    final_model_samples_to_generate: 1250
+    final_model_samples_to_save: 30
+    final_model_chains_to_save: 20
+    sample_steps: 500
+train:
+    n_epochs: 500
+    batch_size: 32
+    save_model: True
+    time_distortion: 'polydec'
+sample:
+    time_distortion: 'polydec'
+    omega: 0
+    eta: 0
+
+model:
+    n_layers: 10
