@@ -18,7 +18,7 @@ general:
     sample_steps: 500
 train:
     n_epochs: 500
-    batch_size: 64
+    batch_size: 16
     save_model: True
     time_distortion: 'polydec'
 sample:
