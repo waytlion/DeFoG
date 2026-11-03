@@ -1065,7 +1065,7 @@ class SpectreSamplingMetrics(nn.Module):
 
         if "cograph_join" in self.metrics_list:
             if local_rank == 0:
-                print("Computing cograph join validity...")
+                print("Computing cograph join validity and subgraph metrics...")
             valid_joins = [G for G in networkx_graphs if is_valid_cograph_join(G)]
             join_valid = len(valid_joins) / len(networkx_graphs)
             to_log["cograph_join_acc"] = join_valid
@@ -1079,13 +1079,36 @@ class SpectreSamplingMetrics(nn.Module):
             else:
                 subgraph_conn = 0.0
             to_log["cograph_join_subgraph_conn_acc"] = subgraph_conn
+
+            gen_subgraphs = []
+            for G in valid_joins:
+                for c in nx.connected_components(nx.complement(G)):
+                    if len(c) > 0:
+                        gen_subgraphs.append(G.subgraph(c).copy())
+
+            ref_set = self.test_graphs if test else self.val_graphs
+            if gen_subgraphs and ref_set:
+                ref_subgraphs = []
+                for g in ref_set[:len(networkx_graphs)]:
+                    if is_valid_cograph_join(g):
+                        for c in nx.connected_components(nx.complement(g)):
+                            ref_subgraphs.append(g.subgraph(c).copy())
+                if ref_subgraphs:
+                    sub_deg = degree_stats(ref_subgraphs, gen_subgraphs, is_parallel=True, compute_emd=self.compute_emd)
+                    sub_clust = clustering_stats(ref_subgraphs, gen_subgraphs, bins=100, is_parallel=True, compute_emd=self.compute_emd)
+                    to_log["subgraph_degree"] = sub_deg
+                    to_log["subgraph_clustering"] = sub_clust
+                    if wandb.run:
+                        wandb.run.summary["subgraph_degree"] = sub_deg
+                        wandb.run.summary["subgraph_clustering"] = sub_clust
+
             if wandb.run:
                 wandb.run.summary["cograph_join_acc"] = join_valid
                 wandb.run.summary["cograph_join_subgraph_conn_acc"] = subgraph_conn
 
         if "cograph_union" in self.metrics_list:
             if local_rank == 0:
-                print("Computing cograph union validity...")
+                print("Computing cograph union validity and subgraph metrics...")
             valid_unions = [G for G in networkx_graphs if is_valid_cograph_union(G)]
             union_valid = len(valid_unions) / len(networkx_graphs)
             to_log["cograph_union_acc"] = union_valid
@@ -1098,6 +1121,29 @@ class SpectreSamplingMetrics(nn.Module):
             else:
                 subgraph_conn = 0.0
             to_log["cograph_union_subgraph_conn_acc"] = subgraph_conn
+
+            gen_subgraphs = []
+            for G in valid_unions:
+                for c in nx.connected_components(G):
+                    if len(c) > 0:
+                        gen_subgraphs.append(G.subgraph(c).copy())
+
+            ref_set = self.test_graphs if test else self.val_graphs
+            if gen_subgraphs and ref_set:
+                ref_subgraphs = []
+                for g in ref_set[:len(networkx_graphs)]:
+                    if is_valid_cograph_union(g):
+                        for c in nx.connected_components(g):
+                            ref_subgraphs.append(g.subgraph(c).copy())
+                if ref_subgraphs:
+                    sub_deg = degree_stats(ref_subgraphs, gen_subgraphs, is_parallel=True, compute_emd=self.compute_emd)
+                    sub_clust = clustering_stats(ref_subgraphs, gen_subgraphs, bins=100, is_parallel=True, compute_emd=self.compute_emd)
+                    to_log["subgraph_degree"] = sub_deg
+                    to_log["subgraph_clustering"] = sub_clust
+                    if wandb.run:
+                        wandb.run.summary["subgraph_degree"] = sub_deg
+                        wandb.run.summary["subgraph_clustering"] = sub_clust
+
             if wandb.run:
                 wandb.run.summary["cograph_union_acc"] = union_valid
                 wandb.run.summary["cograph_union_subgraph_conn_acc"] = subgraph_conn
