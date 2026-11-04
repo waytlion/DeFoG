@@ -1280,6 +1280,15 @@ class IMDBSamplingMetrics(SpectreSamplingMetrics):
         )
 
 
+class CollabSamplingMetrics(SpectreSamplingMetrics):
+    def __init__(self, datamodule):
+        super().__init__(
+            datamodule=datamodule,
+            compute_emd=False,
+            metrics_list=["degree", "clustering", "orbit", "spectre", "wavelet"],
+        )
+
+
 def is_valid_cograph_join(G):
     """A graph is a valid join iff its complement is disconnected."""
     if G.number_of_nodes() < 2:

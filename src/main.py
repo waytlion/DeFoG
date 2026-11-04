@@ -113,6 +113,33 @@ def main(cfg: DictConfig):
             domain_features=domain_features,
         )
 
+    elif dataset_config["name"] == "collab_pure":
+        from analysis.visualization import NonMolecularVisualization
+        from datasets.cograph_dataset import (
+            CographDataModule,
+            CographDatasetInfos,
+        )
+        from analysis.spectre_utils import CollabSamplingMetrics
+
+        datamodule = CographDataModule(cfg)
+        sampling_metrics = CollabSamplingMetrics(datamodule)
+        dataset_infos = CographDatasetInfos(datamodule, dataset_config)
+
+        train_metrics = TrainAbstractMetricsDiscrete()
+        visualization_tools = NonMolecularVisualization(dataset_name=cfg.dataset.name)
+
+        extra_features = ExtraFeatures(
+            cfg.model.extra_features,
+            cfg.model.rrwp_steps,
+            dataset_info=dataset_infos,
+        )
+        domain_features = DummyExtraFeatures()
+
+        dataset_infos.compute_input_output_dims(
+            datamodule=datamodule,
+            extra_features=extra_features,
+            domain_features=domain_features,
+        )
 
     elif dataset_config["name"] in ["qm9", "guacamol", "moses", "zinc"]:
         from metrics.molecular_metrics import (
