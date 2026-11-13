@@ -8,6 +8,7 @@ import graph_tool.all as gt
 ##Navigate to the ./util/orca directory and compile orca.cpp
 # g++ -O2 -std=c++11 -o orca orca.cpp
 import os
+import pathlib
 import sys
 import copy
 import signal
@@ -1065,7 +1066,7 @@ class SpectreSamplingMetrics(nn.Module):
 
         if "cograph_join" in self.metrics_list:
             if local_rank == 0:
-                print("Computing cograph join validity and subgraph metrics...")
+                print("Computing cograph join validity and dejoin metrics...")
             valid_joins = [G for G in networkx_graphs if is_valid_cograph_join(G)]
             join_valid = len(valid_joins) / len(networkx_graphs)
             to_log["cograph_join_acc"] = join_valid
@@ -1080,27 +1081,17 @@ class SpectreSamplingMetrics(nn.Module):
                 subgraph_conn = 0.0
             to_log["cograph_join_subgraph_conn_acc"] = subgraph_conn
 
-            gen_subgraphs = []
-            for G in valid_joins:
-                for c in nx.connected_components(nx.complement(G)):
-                    if len(c) > 0:
-                        gen_subgraphs.append(G.subgraph(c).copy())
-
-            ref_set = self.test_graphs if test else self.val_graphs
-            if gen_subgraphs and ref_set:
-                ref_subgraphs = []
-                for g in ref_set[:len(networkx_graphs)]:
-                    if is_valid_cograph_join(g):
-                        for c in nx.connected_components(nx.complement(g)):
-                            ref_subgraphs.append(g.subgraph(c).copy())
-                if ref_subgraphs:
-                    sub_deg = degree_stats(ref_subgraphs, gen_subgraphs, is_parallel=True, compute_emd=self.compute_emd)
-                    sub_clust = clustering_stats(ref_subgraphs, gen_subgraphs, bins=100, is_parallel=True, compute_emd=self.compute_emd)
-                    to_log["subgraph_degree"] = sub_deg
-                    to_log["subgraph_clustering"] = sub_clust
-                    if wandb.run:
-                        wandb.run.summary["subgraph_degree"] = sub_deg
-                        wandb.run.summary["subgraph_clustering"] = sub_clust
+            dej = [dejoin(G) for G in networkx_graphs]
+            dej_graphs = [g for g, _ in dej]
+            ref = self.dejoin_test if test else self.dejoin_val
+            to_log["dejoin_missing_frac"] = float(np.mean([f for _, f in dej]))
+            to_log["dejoin_degree"] = degree_stats(ref, dej_graphs, compute_emd=self.compute_emd)
+            to_log["dejoin_clustering"] = clustering_stats(ref, dej_graphs, compute_emd=self.compute_emd)
+            to_log["dejoin_orbit"] = orbit_stats_all(ref, dej_graphs, compute_emd=self.compute_emd)
+            to_log["dejoin_spectre"] = spectral_stats(ref, dej_graphs, compute_emd=self.compute_emd)
+            if wandb.run:
+                for k in [k for k in to_log if k.startswith("dejoin_")]:
+                    wandb.run.summary[k] = to_log[k]
 
             if wandb.run:
                 wandb.run.summary["cograph_join_acc"] = join_valid
@@ -1108,7 +1099,7 @@ class SpectreSamplingMetrics(nn.Module):
 
         if "cograph_union" in self.metrics_list:
             if local_rank == 0:
-                print("Computing cograph union validity and subgraph metrics...")
+                print("Computing cograph union validity metrics...")
             valid_unions = [G for G in networkx_graphs if is_valid_cograph_union(G)]
             union_valid = len(valid_unions) / len(networkx_graphs)
             to_log["cograph_union_acc"] = union_valid
@@ -1121,28 +1112,6 @@ class SpectreSamplingMetrics(nn.Module):
             else:
                 subgraph_conn = 0.0
             to_log["cograph_union_subgraph_conn_acc"] = subgraph_conn
-
-            gen_subgraphs = []
-            for G in valid_unions:
-                for c in nx.connected_components(G):
-                    if len(c) > 0:
-                        gen_subgraphs.append(G.subgraph(c).copy())
-
-            ref_set = self.test_graphs if test else self.val_graphs
-            if gen_subgraphs and ref_set:
-                ref_subgraphs = []
-                for g in ref_set[:len(networkx_graphs)]:
-                    if is_valid_cograph_union(g):
-                        for c in nx.connected_components(g):
-                            ref_subgraphs.append(g.subgraph(c).copy())
-                if ref_subgraphs:
-                    sub_deg = degree_stats(ref_subgraphs, gen_subgraphs, is_parallel=True, compute_emd=self.compute_emd)
-                    sub_clust = clustering_stats(ref_subgraphs, gen_subgraphs, bins=100, is_parallel=True, compute_emd=self.compute_emd)
-                    to_log["subgraph_degree"] = sub_deg
-                    to_log["subgraph_clustering"] = sub_clust
-                    if wandb.run:
-                        wandb.run.summary["subgraph_degree"] = sub_deg
-                        wandb.run.summary["subgraph_clustering"] = sub_clust
 
             if wandb.run:
                 wandb.run.summary["cograph_union_acc"] = union_valid
@@ -1303,21 +1272,58 @@ def is_valid_cograph_union(G):
         raise ValueError(f"Graph has {G.number_of_nodes()} nodes, expected >= 2")
     return not nx.is_connected(G)
 
+def dejoin_partition(G):
+    """Split nodes of a (near-)join G into S | T.
+    H = complement(G); returns (S, T, n_missing), n_missing = #H-edges across S|T
+    = number of missing join edges.
+        notes:
+            - if components > 2: split into largest component (S) vs rest (T)
+            - else: normalized-cut sweep along Fiedler vector of H """
+    H = nx.complement(G)
+    nodes = list(G.nodes())
+    comps = list(nx.connected_components(H))
+    if len(comps) >= 2:  # exact join: largest co-component vs rest
+        S = max(comps, key=len)
+        return set(S), set(nodes) - set(S), 0
+    # near-join: normalized-cut sweep along Fiedler vector of H
+    L = nx.normalized_laplacian_matrix(H, nodelist=nodes).toarray()
+    _, vecs = np.linalg.eigh(L)
+    order = [nodes[i] for i in np.argsort(vecs[:, 1])]
+    deg = dict(H.degree())
+    vol_total = 2 * H.number_of_edges()
+    S, cut, vol_S = set(), 0, 0
+    best_ncut, best_k, best_cut = np.inf, 1, 0
+    for k, v in enumerate(order[:-1], start=1):
+        cut += deg[v] - 2 * sum(1 for u in H[v] if u in S)  # move v: T -> S
+        S.add(v)
+        vol_S += deg[v]
+        ncut = cut / vol_S + cut / (vol_total - vol_S)
+        if ncut < best_ncut:
+            best_ncut, best_k, best_cut = ncut, k, cut
+    S = set(order[:best_k])
+    return S, set(nodes) - S, best_cut
+
+
+def dejoin(G):
+    """Remove all edges between S and T. Returns (G[S] ∪ G[T], dejoin_missing_frac)."""
+    S, T, n_missing = dejoin_partition(G)
+    G2 = G.copy()
+    G2.remove_edges_from([(u, v) for u, v in G.edges() if (u in S) != (v in S)])
+    return G2, n_missing / (len(S) * len(T))
+
 
 class CographJoinSamplingMetrics(SpectreSamplingMetrics):
     def __init__(self, datamodule):
         super().__init__(
             datamodule=datamodule,
             compute_emd=False,
-            metrics_list=[
-                "degree",
-                "clustering",
-                "orbit",
-                "spectre",
-                "wavelet",
-                "cograph_join",
-            ],
+            metrics_list=["degree", "clustering", "orbit", "spectre", "wavelet", "cograph_join"],
         )
+        # de-joined references = sparse (union) graphs built from the same (A, B) pairs
+        root = pathlib.Path(__file__).parents[4] / "data" / datamodule.cfg.dataset.name.replace("_dense", "_sparse")
+        load = lambda s: [nx.from_numpy_array(a.numpy()) for a in torch.load(root / f"{s}.pt")]
+        self.dejoin_val, self.dejoin_test = load("val"), load("test")
+
 
 
 class CographUnionSamplingMetrics(SpectreSamplingMetrics):
