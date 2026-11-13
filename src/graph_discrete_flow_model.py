@@ -211,6 +211,10 @@ class GraphDiscreteFlowModel(pl.LightningModule):
             samples, labels = self.sample(
                 is_test=False, save_samples=False, save_visualization=True
             )
+            # Keep generated graphs so metrics can be recomputed offline.
+            os.makedirs("val_samples", exist_ok=True)
+            with open(f"val_samples/epoch{self.current_epoch}.pkl", "wb") as f:
+                pickle.dump([[x.cpu(), e.cpu()] for x, e in samples], f)
             to_log = self.evaluate_samples(
                 samples=samples, labels=labels, is_test=False
             )
